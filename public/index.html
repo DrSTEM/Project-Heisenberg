@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Encrypted Chat — Demo</title>
+</head>
+<body>
+  <div id="app">
+    <section id="login">
+      <h1>Encrypted Chat</h1>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="username" placeholder="Choose a username" />
+        <button id="btn-login">Login</button>
+      </div>
+      <p id="login-note">Your private key is stored locally in localStorage (demo only).</p>
+    </section>
+
+    <section id="lobby" style="display:none">
+      <div class="top">
+        <input id="create-name" placeholder="Room name" />
+        <label style="display:flex;align-items:center;gap:6px;"><input id="create-private" type="checkbox" /> Private</label>
+        <input id="create-token" placeholder="Optional invite token (private only)" style="min-width:200px;display:none;" />
+        <button id="btn-create-room">Create Room</button>
+      </div>
+      <h2>Rooms</h2>
+      <ul id="rooms-list"></ul>
+    </section>
+
+    <section id="room" style="display:none">
+      <div class="room-header">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <h2 id="room-name"></h2>
+          <div id="room-invite" style="display:none">Invite: <span id="room-invite-token"></span><button id="copy-invite" class="secondary copy">Copy</button></div>
+        </div>
+        <div>
+          <button id="btn-leave" class="secondary">Leave</button>
+        </div>
+      </div>
+      <div id="presence"></div>
+      <div id="messages" tabindex="0"></div>
+      <div id="typing"></div>
+      <div class="composer">
+        <textarea id="message-input" rows="2" placeholder="Type message (Enter to send, Shift+Enter newline)"></textarea>
+        <button id="btn-send">Send</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- INJECT_SCRIPTS -->
+</body>
+</html>
