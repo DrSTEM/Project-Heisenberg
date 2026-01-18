@@ -1,7 +1,7 @@
 {
-  "name": "e2e-chat-dev",
+  "name": "PROJECT-HISENBERG",
   "version": "1.0.0",
-  "description": "Dev server with cache-busting build id + nodemon debug setup",
+  "description": "YIELDING TO THE TRUE POWER OF CODE",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

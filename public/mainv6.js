@@ -1,12 +1,14 @@
 // public/mainv6.js
-// Client app: create room (own token optional), auto-join on create, join flows, message sync, typing, copy shortcuts.
+// Client app modified to unwrap server-wrapped room key on join,
+// and then use the room symmetric AES-GCM key to encrypt/decrypt messages.
+// UI and user flows unchanged.
 
 (() => {
   let socket = null;
   let myUsername = null;
-  let myKeyPair = null;
+  let myKeyPair = null; // { publicJwk, privateJwk }
   let currentRoom = null;
-  let roomAesKey = null;
+  let roomAesKey = null; // CryptoKey AES-GCM for encrypt/decrypt
 
   /* crypto helpers */
   function toBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
@@ -26,12 +28,39 @@
     return myKeyPair;
   }
 
-  async function deriveRoomKey(privateJwk, roomPublicJwk) {
+  // Derive an AES-GCM 256 key from ECDH between our privateJwk and otherPublicJwk
+  async function deriveAesKeyFromECDH(privateJwk, otherPublicJwk) {
     const priv = await importPrivateJwk(privateJwk);
-    const pub = await importPublicJwk(roomPublicJwk);
-    return crypto.subtle.deriveKey({ name: 'ECDH', public: pub }, priv, { name: 'AES-GCM', length: 256 }, false, ['encrypt','decrypt']);
+    const pub = await importPublicJwk(otherPublicJwk);
+    const derived = await crypto.subtle.deriveKey({ name: 'ECDH', public: pub }, priv, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    return derived;
   }
 
+  // Unwrap/Decrypt wrappedRoomKey sent by server (wrapped with ECDH(serverPriv, clientPub))
+  // wrappedRoomKeyBase64, ivBase64: base64 strings
+  async function unwrapRoomKeyFromServer(privateJwk, serverPublicJwk, wrappedRoomKeyBase64, ivBase64) {
+    if (!wrappedRoomKeyBase64 || !ivBase64) return null;
+    try {
+      const wrappingKey = await deriveAesKeyFromECDH(privateJwk, serverPublicJwk);
+      const wrappedBuf = fromBase64(wrappedRoomKeyBase64);
+      const iv = new Uint8Array(fromBase64(ivBase64));
+      // unwrap: server wrapped the raw symmetric key (32 bytes) with AES-GCM; we decrypt to get the raw key
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, wrappingKey, wrappedBuf);
+      // import the raw room key as AES-GCM CryptoKey for later encrypt/decrypt usage
+      const roomKey = await crypto.subtle.importKey('raw', plain, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+      return roomKey;
+    } catch (e) {
+      console.error('unwrapRoomKeyFromServer error', e);
+      return null;
+    }
+  }
+
+  // Utility: create a new AES-GCM key from raw 32-byte buffer (BufferSource)
+  async function importRawAesKey(rawBuf) {
+    return crypto.subtle.importKey('raw', rawBuf, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  }
+
+  // Encrypt plain text with roomAesKey (AES-GCM)
   async function encryptForRoom(aesKey, text) {
     const enc = new TextEncoder().encode(text);
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -39,6 +68,7 @@
     return { ciphertext: toBase64(ct), iv: toBase64(iv) };
   }
 
+  // Decrypt ciphertext with roomAesKey
   async function decryptFromRoom(aesKey, ciphertextBase64, ivBase64) {
     try {
       const ct = fromBase64(ciphertextBase64);
@@ -50,7 +80,7 @@
     }
   }
 
-  /* DOM helpers */
+  /* DOM helpers (unchanged) */
   function $(id) { return document.getElementById(id); }
   function hide(id) { const el = $(id); if (el) el.style.display = 'none'; }
   function show(id) { const el = $(id); if (el) el.style.display = ''; }
@@ -183,7 +213,7 @@
     }
   }
 
-  /* join flow (with token prompt retry) */
+  /* join flow (with server wrapping) */
   async function doJoin(roomIdOrToken) {
     if (!myUsername) return alert('login first');
     await ensureClientKeys();
@@ -213,17 +243,38 @@
     $('room-name').innerText = currentRoom.name + (currentRoom.isPrivate ? ' (private)' : '');
     if (currentRoom.inviteToken) { $('room-invite-token').innerText = currentRoom.inviteToken; $('room-invite').style.display = ''; } else { $('room-invite').style.display = 'none'; }
 
-    try { roomAesKey = await deriveRoomKey(myKeyPair.privateJwk, currentRoom.roomPublicJwk); } catch (e) { console.error('deriveRoomKey', e); alert('Unable to derive room key'); return; }
+    // Important: server provides serverPublicJwk + wrappedRoomKey + wrappedRoomKeyIv
+    // We must derive the AES key via ECDH(myPriv, serverPub) and decrypt wrappedRoomKey to get the raw room symmetric key,
+    // then import that raw key as AES-GCM CryptoKey and store in roomAesKey.
+    try {
+      if (currentRoom.wrappedRoomKey && currentRoom.wrappedRoomKeyIv && currentRoom.serverPublicJwk) {
+        roomAesKey = await unwrapRoomKeyFromServer(myKeyPair.privateJwk, currentRoom.serverPublicJwk, currentRoom.wrappedRoomKey, currentRoom.wrappedRoomKeyIv);
+        if (!roomAesKey) { console.error('Failed to unwrap room key'); alert('Unable to derive room key — you will not be able to decrypt messages.'); }
+      } else if (currentRoom.roomPublicJwk) {
+        // Fallback for older server versions: derive from roomPublicJwk (older behavior)
+        try {
+          roomAesKey = await deriveAesKeyFromECDH(myKeyPair.privateJwk, currentRoom.roomPublicJwk);
+        } catch (e) {
+          console.error('fallback derive failed', e);
+        }
+      } else {
+        console.warn('No wrapped room key provided by server');
+      }
+    } catch (e) {
+      console.error('deriveRoomKey error', e);
+      alert('Unable to derive room key');
+      return;
+    }
 
     $('messages').innerHTML = '';
     for (const m of ack.data.history || []) {
-      const text = m.ciphertext ? await decryptFromRoom(roomAesKey, m.ciphertext, m.iv) : '[no ciphertext]';
+      const text = m.ciphertext && roomAesKey ? await decryptFromRoom(roomAesKey, m.ciphertext, m.iv) : (m.text || '[no ciphertext]');
       appendMessage({ id: m.id, from: m.from, text }, m.from === myUsername);
     }
     const local = await loadLocalMsgs(currentRoom.id);
     for (const m of local) {
       if (!ack.data.history.find(h => h.id === m.id)) {
-        const text = m.ciphertext ? await decryptFromRoom(roomAesKey, m.ciphertext, m.iv) : (m.text || '[local]');
+        const text = m.ciphertext && roomAesKey ? await decryptFromRoom(roomAesKey, m.ciphertext, m.iv) : (m.text || '[local]');
         appendMessage({ id: m.id, from: m.from, text }, m.from === myUsername);
       }
     }
@@ -280,7 +331,7 @@
     });
   }
 
-  /* UI wiring */
+  /* UI wiring (unchanged) */
   function initUI() {
     $('create-private').addEventListener('change', (e) => { $('create-token').style.display = e.target.checked ? '' : 'none'; });
     $('btn-login').addEventListener('click', async () => {
@@ -313,7 +364,6 @@
       const token = $('room-invite-token').innerText; if (token) { copyToClipboard(token); showSystemNotice('Invite copied'); }
     });
 
-    // Ctrl/Cmd+K focuses input
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
