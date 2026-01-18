@@ -1,0 +1,22 @@
+{
+  "publicJwk": {
+    "key_ops": [],
+    "ext": true,
+    "kty": "EC",
+    "x": "HDX1n2S6y967aAwT5pqM-RV7J9EOjKgj_vEkcXy48Es",
+    "y": "q-7f-pnWk7VBH2DDTqpTHMcigy11cnpfIjl3wLHkhOA",
+    "crv": "P-256"
+  },
+  "privateJwk": {
+    "key_ops": [
+      "deriveKey",
+      "deriveBits"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "HDX1n2S6y967aAwT5pqM-RV7J9EOjKgj_vEkcXy48Es",
+    "y": "q-7f-pnWk7VBH2DDTqpTHMcigy11cnpfIjl3wLHkhOA",
+    "crv": "P-256",
+    "d": "IljSP3jP_xhCmQxBHoPGn7MCp9zxqNUeUu_3eiYlHMo"
+  }
+}
