@@ -152,8 +152,8 @@
           "ext": true,
           "key_ops": [],
           "kty": "EC",
-          "x": "nfLt5dXT3b-WrjE0pEoUYeLclR0tZQmagObiawwbtX8",
-          "y": "oxjbDvve4nXb40B7QSkxCdoBpa3a1anKOVzpnXzW0Ns"
+          "x": "uBDtYMa3WwKesmPdF2pb8l7S4b-or3omdMAJuRRPLDg",
+          "y": "A_0soYs61vcVFges2zvdbZwj7P6vT5GY5wRlfuUTnuQ"
         },
         "bob": {
           "crv": "P-256",
